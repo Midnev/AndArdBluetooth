@@ -7,7 +7,11 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Message;
 import android.util.Log;
+
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import java.io.IOException;
 import java.io.InputStream;
@@ -23,7 +27,7 @@ public class BlueToothManager {
     private InputStream inStream = null;
     private AppCompatActivity activity;
 
-    private String targetAddress = "98:D3:32:30:72:FE";
+    private String targetAddress = "00:00:00:00:00:00";
     private String TAG = "BTManager";
     private UUID MY_UUID ;
 
@@ -97,6 +101,8 @@ public class BlueToothManager {
             Log.e(TAG, "Error setting output stream" );
         }
         checkBTState();
+        if(listenerState)
+            listenerThread.start();
     }
 
     /**
@@ -139,9 +145,15 @@ public class BlueToothManager {
     }
 
     public void sendData(String message) {
-        byte[] msgBuffer = message.getBytes();
-
-        Log.d(TAG, "...Send data: " + message + "...");
+        byte[] msgBuffer;
+        try {
+            //message += "\n";
+            msgBuffer = message.getBytes();
+        }catch (Exception e){
+            Log.i(TAG,"failed to process Message ");
+            msgBuffer = "0".getBytes();
+        }
+        Log.d(TAG, "...Send data: " + message);
 
         try {
             outStream.write(msgBuffer);
@@ -152,20 +164,31 @@ public class BlueToothManager {
             msg = msg +  ".\n\nCheck that the SPP UUID: " + MY_UUID.toString() + " exists on server.\n\n";
 
             Log.e(TAG, "Failed to write,m "+ msg);
-
         }
+        Log.d(TAG, "data sent!");
     }
 
 
     private final byte delimiter = 10;
-    private BluetoothMessageHandler handler;
+    private BlueToothManager.BluetoothMessageHandler bluetoothHandler;
     private Thread listenerThread;
-    private boolean listenerState;
+    private boolean listenerState = false;
     private byte[] readBuffer;
     private int readBufferPosition;
+    private Handler handler;
+    private String result = "";
+    public void addMessageReceiveHandler(final BlueToothManager.BluetoothMessageHandler bluetoothHandler){
+        this.bluetoothHandler = bluetoothHandler;
 
-    public void addMessageReceiveHandler(final BluetoothMessageHandler handler){
-        this.handler = handler;
+        handler = new Handler(){
+            @Override
+            public void handleMessage(@NonNull Message msg) {
+                super.handleMessage(msg);
+                bluetoothHandler.onDataReceived(result);
+
+            }
+        };
+
         listenerState = true;
         readBufferPosition = 0;
         readBuffer = new byte[1024];
@@ -186,9 +209,11 @@ public class BlueToothManager {
                                     System.arraycopy(readBuffer, 0, encodedBytes, 0, encodedBytes.length);
                                     final String data = new String(encodedBytes, listenerEncoding);
                                     readBufferPosition = 0;
-                                    handler.onDataRecvied(data);
-                                }
-                                else{
+                                    result = data;
+                                    handler.sendEmptyMessage(0);
+
+                                    //bluetoothHandler.onDataReceived(data);
+                                }else{
                                     readBuffer[readBufferPosition++] = b;
                                 }
                             }
@@ -198,15 +223,16 @@ public class BlueToothManager {
                     }
                 }
                 Log.i(TAG,"Bluetooth Listener Stopped");
+                listenerState = false;
             }
         });
 
-        listenerThread.start();
+//        listenerThread.start();
     }
 
 
     public interface BluetoothMessageHandler {
-        void onDataRecvied(String data);
+        void onDataReceived(String data);
     }
 
 
